@@ -1,0 +1,48 @@
+{
+  "name": "mcp-devops-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zero-DevOps infrastructure provisioning MCP server.",
+  "type": "module",
+  "bin": {
+    "mcp-devops-agent": "dist/index.js"
+  },
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "doctor": "node dist/index.js doctor",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:package": "npm run build && node --test tests/package/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "dotenv": "17.2.3",
+    "ignore": "7.0.5",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.9",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  }
+}
