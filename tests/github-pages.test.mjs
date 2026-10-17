@@ -53,6 +53,8 @@ test("GitHub Pages separates repository source, settings and deployment approval
 test("GitHub Pages rejects commercial workloads and changed immutable refs", async () => {
   const f = await fixture(); const commercial = await f.engine.propose(f.app, { ...f.constraints, commercialUse: true }, f.overrides);
   assert.equal(commercial.recommended, null); assert.ok(commercial.rejected.find((r) => r.provider === "github-pages"));
+  const auth = await f.engine.propose(f.app, { ...f.constraints, maxMonthlyBudgetUsd: 100 }, { ...f.overrides, capabilities: ["static", "auth"], providers: { static: "github-pages", auth: "supabase" } });
+  assert.equal(auth.recommended, null); assert.ok(auth.rejected.find((r) => r.provider === "github-pages" && r.reasons.some((reason) => reason.includes("usage restrictions"))));
   let p = await f.engine.propose(f.app, f.constraints, f.overrides); p = await f.engine.prepare(p.id); await f.engine.execute(p.id, "pages-source", f.server);
   p = await f.engine.prepare(p.id); f.drift();
   await assert.rejects(f.engine.execute(p.id, "pages-settings", f.server), { code: "SOURCE_CHANGED" });

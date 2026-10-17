@@ -220,6 +220,7 @@ export const operationSchema = z
     expiresAt: timestampSchema,
     status: statusSchema,
     costCommitted: z.boolean(),
+    executionLease: z.object({ nonce: z.string().uuid(), pid: z.number().int().positive(), hostname: z.string(), expiresAt: timestampSchema }).strict().optional(),
     maxMonthlyBudgetUsd: usdSchema,
     maxUpfrontBudgetUsd: usdSchema,
     estimatedMonthlyUsageUsd: usdSchema,

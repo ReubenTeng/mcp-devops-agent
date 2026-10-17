@@ -176,6 +176,24 @@ test("approved create_vercel_project performs exactly one POST and stores safe s
   });
 });
 
+test("reads and independent preparations continue while native approval is pending", async () => {
+  const fixture = await makeFixture(); const { impl } = makeFetch(vercelRoutes);
+  let currentClient; let operationId;
+  await withClient({ fixture, fetchImpl: impl, approve: async () => {
+    const read = resultData(await currentClient.callTool({ name: "get_operation", arguments: { operationId } }));
+    assert.strictEqual(read.status, "prepared");
+    const independent = resultData(await currentClient.callTool({ name: "prepare_infrastructure_change", arguments: { projectPath: fixture.project, action: { kind: "create_vercel_project", name: "independent" }, maxMonthlyBudgetUsd: 50, commercialUse: true } }));
+    assert.ok(independent.operationId, JSON.stringify(independent));
+    return true;
+  } }, async ({ client }) => {
+    currentClient = client;
+    const prepared = resultData(await client.callTool({ name: "prepare_infrastructure_change", arguments: { projectPath: fixture.project, action: { kind: "create_vercel_project", name: "my-app" }, maxMonthlyBudgetUsd: 50, commercialUse: true } }));
+    operationId = prepared.operationId;
+    const executed = resultData(await client.callTool({ name: "execute_infrastructure_change", arguments: { operationId } }));
+    assert.strictEqual(executed.status, "succeeded");
+  });
+});
+
 test("unknown and expired operations cannot execute", async () => {
   const fixture = await makeFixture();
   const { impl } = makeFetch(vercelRoutes);

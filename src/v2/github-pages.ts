@@ -8,6 +8,7 @@ import { manifestSchema, type Outcome, type Prepared, type Resource } from "./sc
 export const githubPagesManifest = manifestSchema.parse({
   protocolVersion: 2, id: "github-pages", name: "GitHub Pages", version: "2.0.0", tier: "executable",
   capabilities: ["static"], runtimes: ["static", "node"], frameworks: [], regions: [], compliance: [],
+  forbiddenCapabilities: ["auth"],
   commercialUse: "restricted", reliability: "production", credentials: ["GITHUB_TOKEN"], accountSettings: [],
   operations: ["create_source_ref", "configure_pages", "build_pages", "teardown"], teardown: true, teardownKinds: ["pages"], reconciliation: "identity", artifactAccess: false, buildMode: "prebuilt", maxStorageGb: 1,
   pricing: { monthlyCents: 0, upfrontCents: 0, reviewedAt: "2026-10-14", source: "https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits", assumptions: ["Public repository and prebuilt static content only. GitHub Pages business/e-commerce/SaaS restrictions apply. Published site limit 1 GB, soft bandwidth limit 100 GB/month. No private repository or paid Actions usage is included."] },

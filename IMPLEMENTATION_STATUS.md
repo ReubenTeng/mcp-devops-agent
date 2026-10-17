@@ -17,6 +17,8 @@ by its regression harness.
 
 Remaining integration includes complete new-provider coverage, reviewed OpenTofu
 modules, additional registrar purchases and comprehensive application verification.
+GitHub workflow-file editing/commits and general external artifact transfer are
+also unfinished. The GitHub Pages adapter currently uses prebuilt committed source.
 Catalog entries describe recommendation leads, not tested executable integrations.
 
 Live provider acceptance requires isolated accounts and actual client approvals.

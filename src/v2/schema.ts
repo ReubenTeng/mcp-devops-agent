@@ -30,6 +30,7 @@ export const manifestSchema = z.object({
   maxMonthlyRequests: cents.optional(), maxStorageGb: z.number().nonnegative().finite().optional(),
   buildMode: z.enum(["prebuilt", "remote"]).optional(),
   teardownKinds: z.array(identifier).max(32).optional(),
+  forbiddenCapabilities: z.array(capabilitySchema).max(32).optional(),
 }).strict();
 export type Manifest = z.infer<typeof manifestSchema>;
 export type Capability = z.infer<typeof capabilitySchema>;

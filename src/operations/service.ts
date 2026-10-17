@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isIP } from "node:net";
+import { hostname } from "node:os";
 import path from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
@@ -25,6 +26,7 @@ const ESTIMATE_WARNING =
   "Excludes usage overages, taxes, add-ons and existing unrelated account spend. This is not a billing cap.";
 const DOMAIN_PURCHASE_WARNING =
   "Domain purchases are non-refundable; the quoted price is pre-tax and may change before checkout. The Cloudflare API has no atomic maximum-price parameter, so the latest check is not a price guarantee.";
+const activeLeaseNonces = new Set<string>();
 
 export interface PrepareInput {
   projectPath: string;
@@ -64,6 +66,40 @@ export class OperationService {
   ) {
     this.store = new OperationStore(config.stateDir);
     this.fetchImpl = deps.fetch;
+  }
+
+  private leaseActive(op: Operation): boolean {
+    const lease = op.executionLease;
+    if (!lease || Date.parse(lease.expiresAt) <= Date.now()) return false;
+    if (lease.hostname !== hostname()) return true;
+    if (lease.pid === process.pid) return activeLeaseNonces.has(lease.nonce);
+    try { process.kill(lease.pid, 0); return true; }
+    catch (err) { return (err as NodeJS.ErrnoException).code !== "ESRCH"; }
+  }
+
+  /** Only short state claims are locked; provider I/O and approval run under a
+   * durable lease so other operations and cancellation stay available. */
+  private async withOperationLease<T>(id: string, mode: "execute" | "reconcile", run: () => Promise<T>): Promise<T> {
+    const nonce = crypto.randomUUID();
+    await this.store.withLock(() => this.store.withLock(async () => {
+      const op = await this.store.load(id);
+      await this.assertOperationRoot(op);
+      if (mode === "execute" && ["running", "pending", "unknown"].includes(op.status)) throw new AppError("RECONCILIATION_REQUIRED", "This operation may already be in progress. Reconcile it before retrying.");
+      if (this.leaseActive(op)) throw new AppError("FILE_BUSY", "This operation is active in another request.");
+      op.executionLease = { nonce, pid: process.pid, hostname: hostname(), expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+      await this.store.save(op);
+      activeLeaseNonces.add(nonce);
+    }), `operation-${id}`);
+    try { return await run(); }
+    finally {
+      activeLeaseNonces.delete(nonce);
+      // If storage becomes unavailable, retain the durable record for recovery.
+      // A cleanup failure must not turn a mutation error into a retryable result.
+      await this.store.withLock(() => this.store.withLock(async () => {
+        const op = await this.store.load(id);
+        if (op.executionLease?.nonce === nonce) { op.executionLease = undefined; await this.store.save(op); }
+      }), `operation-${id}`).catch(() => {});
+    }
   }
 
   private vercel(signal?: AbortSignal): VercelProvider {
@@ -641,7 +677,7 @@ export class OperationService {
 
   async execute(operationId: string, server: McpServer, signal?: AbortSignal): Promise<object> {
     await this.store.init();
-    return this.store.withLock(async () => {
+    return this.withOperationLease(operationId, "execute", async () => {
       const op = await this.store.load(operationId);
       await this.assertOperationRoot(op);
       if (op.status === "succeeded") {
@@ -759,7 +795,7 @@ export class OperationService {
         await this.store.save(op);
         throw err;
       }
-    }, `operation-${operationId}`);
+    });
   }
 
   private async perform(
@@ -1334,7 +1370,7 @@ export class OperationService {
 
   async reconcile(operationId: string, resourceId: string | undefined, server: McpServer): Promise<object> {
     await this.store.init();
-    return this.store.withLock(async () => {
+    return this.withOperationLease(operationId, "reconcile", async () => {
       const op = await this.store.load(operationId);
       await this.assertOperationRoot(op);
       if (op.status !== "unknown" && op.status !== "running" && op.status !== "pending") {
@@ -1501,7 +1537,7 @@ export class OperationService {
       op.events.push({ at: new Date().toISOString(), event: `reconciled_${found.status}` });
       await this.store.save(op);
       return { operationId: op.id, status: op.status, result: op.result };
-    }, `operation-${operationId}`);
+    });
   }
 
   async getResourceStatus(input: {

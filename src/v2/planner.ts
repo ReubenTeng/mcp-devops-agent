@@ -11,6 +11,7 @@ export function rankCandidates(workload: Workload, constraints: Constraints, ove
   for (const m of [...registry.manifests.values()].sort((a, b) => a.id.localeCompare(b.id))) {
     const reasons: string[] = [];
     if (!m.capabilities.some((c) => workload.capabilities.includes(c))) continue;
+    if (m.forbiddenCapabilities?.some((c) => workload.capabilities.includes(c))) reasons.push("The provider's usage restrictions conflict with this workload.");
     if (constraints.commercialUse && m.commercialUse === "restricted") reasons.push("Commercial use is restricted.");
     if (constraints.reliability === "production" && m.reliability === "development") reasons.push("Production reliability is required.");
     if (constraints.region && m.capabilities.some((c) => c !== "dns" && c !== "registrar") && !m.regions.includes(constraints.region)) reasons.push("The required region is not verified by this manifest.");

@@ -54,7 +54,7 @@ export class Registry {
     return Object.fromEntries([...new Set([...this.manifests.values()].flatMap((m) => m.credentials))].filter((k) => env[k]).map((k) => [k, env[k]!]));
   }
   async validate(id: string, checksum: string): Promise<void> {
-    if (this.checksum(id) !== checksum) throw new AppError("ADAPTER_CHANGED", "The plan's adapter version or checksum changed; propose a new plan.");
+    if (this.checksum(id) !== checksum) throw new AppError("ADAPTER_CHANGED", "The plan's adapter version or checksum changed. Restore the recorded adapter version to reconcile uncertain resources; use a fresh plan only for new work.");
     await this.adapters.get(id)?.validate();
   }
 }
