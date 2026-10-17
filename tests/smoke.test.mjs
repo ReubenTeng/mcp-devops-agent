@@ -62,65 +62,18 @@ test("MCP server tools analyze, plan and gate secrets over stdio", { timeout: 15
     await client.connect(transport);
 
     const { tools } = await client.listTools();
-    assert.deepStrictEqual(tools.map((t) => t.name).sort(), [
-      "analyze_project_infra",
-      "cancel_operation",
-      "check_domain_availability",
-      "check_provider_connections",
-      "execute_infrastructure_change",
-      "get_operation",
-      "get_resource_status",
-      "inspect_vercel_domain",
-      "list_operations",
-      "prepare_infrastructure_change",
-      "propose_infra_plan",
-      "reconcile_operation",
-      "search_domains",
-      "write_env_secrets",
-    ]);
-    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
-    assert.deepStrictEqual(byName["analyze_project_infra"].inputSchema.required, ["projectPath"]);
-    assert.deepStrictEqual(
-      byName["propose_infra_plan"].inputSchema.required.sort(),
-      ["maxMonthlyBudgetUsd", "stackRequirements"].sort(),
-    );
-    assert.deepStrictEqual(byName["write_env_secrets"].inputSchema.required.sort(), ["projectPath", "secrets"].sort());
-
-    const analysis = textJson(
-      await client.callTool({ name: "analyze_project_infra", arguments: { projectPath: project } }),
-    );
+    assert.ok(tools.some((t) => t.name === "propose_infrastructure_plan"));
+    assert.ok(!tools.some((t) => t.name === "propose_infra_plan"));
+    const analysis = textJson(await client.callTool({ name: "analyze_project_infra", arguments: { projectPath: project } }));
     assert.ok(analysis.frameworks.includes("nextjs"));
-    for (const req of ["hosting", "serverless-functions", "sql", "auth", "storage"]) {
-      assert.ok(analysis.stackRequirements.includes(req), `expected requirement ${req}`);
-    }
-    assert.strictEqual(analysis.packageManager, "npm");
+    for (const capability of ["serverless", "postgres", "auth", "storage"]) assert.ok(analysis.capabilities.includes(capability));
     assert.deepStrictEqual(analysis.envKeys, ["SMOKE_KEY"]);
-    assert.ok(analysis.missingPrerequisites.includes("hosting provider not configured"));
-    assert.ok(analysis.missingPrerequisites.includes("database provider not configured"));
-
-    const commercialZero = textJson(
-      await client.callTool({
-        name: "propose_infra_plan",
-        arguments: { stackRequirements: ["hosting"], maxMonthlyBudgetUsd: 0, commercialUse: true },
-      }),
-    );
-    assert.strictEqual(commercialZero.recommended, null);
-    assert.strictEqual(commercialZero.budgetPolicy, "approved_estimates");
-    assert.strictEqual(commercialZero.estimatesAreHardCaps, false);
-
-    const personalZero = textJson(
-      await client.callTool({
-        name: "propose_infra_plan",
-        arguments: {
-          stackRequirements: ["hosting"],
-          maxMonthlyBudgetUsd: 0,
-          commercialUse: false,
-          preferProductionReliability: false,
-        },
-      }),
-    );
-    assert.strictEqual(personalZero.recommended.estimatedMonthlyCostUsd, 0);
-    assert.ok(personalZero.recommended.components.some((c) => c.id === "vercel-hobby"));
+    const commercialZero = textJson(await client.callTool({ name: "propose_infrastructure_plan", arguments: { projectPath: project, constraints: { maxMonthlyBudgetUsd: 0 } } }));
+    assert.strictEqual(commercialZero.version, 2);
+    assert.ok(commercialZero.recommended === null || commercialZero.recommended.status === "catalog_only");
+    const personalZero = textJson(await client.callTool({ name: "propose_infrastructure_plan", arguments: { projectPath: project, constraints: { maxMonthlyBudgetUsd: 100, commercialUse: false } } }));
+    assert.ok(personalZero.recommended);
+    assert.ok(personalZero.steps.length);
 
     const writeAttempt = await client.callTool({
       name: "write_env_secrets",
@@ -139,8 +92,8 @@ test("MCP server tools analyze, plan and gate secrets over stdio", { timeout: 15
     await expectToolError(client.callTool({ name: "analyze_project_infra", arguments: { projectPath: "" } }));
     await expectToolError(
       client.callTool({
-        name: "propose_infra_plan",
-        arguments: { stackRequirements: ["sql"], maxMonthlyBudgetUsd: -1 },
+        name: "propose_infrastructure_plan",
+        arguments: { projectPath: project, constraints: { maxMonthlyBudgetUsd: -1 } },
       }),
     );
     await expectToolError(

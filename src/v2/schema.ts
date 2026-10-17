@@ -26,6 +26,10 @@ export const manifestSchema = z.object({
   artifactAccess: z.boolean().default(false),
   pricing: pricingSchema, documentation: z.array(z.string().url()).min(1).max(16),
   limits: z.array(z.string().max(1000)).max(32),
+  latencyMs: z.number().positive().optional(),
+  maxMonthlyRequests: cents.optional(), maxStorageGb: z.number().nonnegative().finite().optional(),
+  buildMode: z.enum(["prebuilt", "remote"]).optional(),
+  teardownKinds: z.array(identifier).max(32).optional(),
 }).strict();
 export type Manifest = z.infer<typeof manifestSchema>;
 export type Capability = z.infer<typeof capabilitySchema>;
@@ -46,6 +50,7 @@ export const workloadSchema = z.object({
   runtime: z.string(), ports: z.array(z.number().int().min(1).max(65535)),
   buildCommand: z.string().max(2000).optional(), startCommand: z.string().max(2000).optional(),
   sourceRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  sourceDigest: hashSchema.optional(),
   envKeys: z.array(z.string()), privilegedEnvKeys: z.array(z.string()),
   evidence: z.array(z.object({ requirement: z.string(), file: z.string(), signal: z.string() })),
   questions: z.array(z.string()), truncated: z.boolean(),
@@ -57,12 +62,17 @@ export const publicValue: z.ZodType<unknown> = z.lazy(() => z.union([
   z.array(publicValue).max(128), z.record(z.string().max(128), publicValue),
 ]));
 export const optionsSchema = z.record(identifier, publicValue);
+const journalValue: z.ZodType<unknown> = z.lazy(() => z.union([
+  z.string().max(8192), z.number().finite(), z.boolean(), z.null(),
+  z.array(journalValue).max(8192), z.record(z.string().max(256), journalValue),
+]));
 export const overridesSchema = z.object({
   blueprint: blueprintSchema.optional(), runtime: z.string().max(50).optional(),
   capabilities: z.array(capabilitySchema).max(32).optional(),
   providers: z.record(capabilitySchema, identifier).optional(),
   parameters: z.record(identifier, optionsSchema).optional(),
   sourceRevision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  domain: z.object({ name: z.string().toLowerCase().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/), purchase: z.boolean().default(false), years: z.number().int().min(1).max(10).default(1), registrar: identifier.optional(), profileId: identifier.optional() }).strict().optional(),
 }).strict();
 export type Overrides = z.infer<typeof overridesSchema>;
 export const quoteSchema = z.object({
@@ -87,7 +97,7 @@ export const estimateSchema = z.object({
 export const preparedSchema = z.object({
   account: z.string().min(1).max(256), region: z.string().optional(),
   mutations: z.array(z.object({ action: z.enum(["create", "update", "delete", "purchase", "deploy", "write"]), target: z.string().min(1).max(1000), details: z.string().max(4000) }).strict()).min(1).max(256),
-  estimate: estimateSchema, preconditions: optionsSchema, expiresAt: z.string().datetime(),
+  estimate: estimateSchema, preconditions: z.record(identifier, journalValue), expiresAt: z.string().datetime(),
   quote: quoteSchema.optional(),
 }).strict();
 export type Prepared = z.infer<typeof preparedSchema>;
@@ -103,6 +113,7 @@ export const stepSchema = z.object({
   legacyOperationId: z.string().uuid().optional(),
   lease: z.object({ nonce: z.string().uuid(), pid: z.number().int(), hostname: z.string(), until: z.string().datetime() }).optional(),
   resources: z.array(resourceSchema), error: z.string().max(128).optional(),
+  setupRequirements: z.array(z.string().max(2000)).max(32).default([]),
   committed: z.boolean(), retired: z.boolean().default(false),
 }).strict();
 export type Step = z.infer<typeof stepSchema>;

@@ -6,12 +6,13 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = [100, 250];
 const MAX_RETRY_AFTER_MS = 2_000;
 
-export type ProviderOrigin = "https://api.vercel.com" | "https://api.supabase.com" | "https://api.cloudflare.com";
+export type ProviderOrigin = "https://api.vercel.com" | "https://api.supabase.com" | "https://api.cloudflare.com" | "https://api.github.com";
 
 const PROVIDER_NAMES: Record<ProviderOrigin, string> = {
   "https://api.vercel.com": "Vercel",
   "https://api.supabase.com": "Supabase",
   "https://api.cloudflare.com": "Cloudflare",
+  "https://api.github.com": "GitHub",
 };
 
 export class ProviderError extends AppError {
@@ -119,7 +120,7 @@ export class ProviderHttp {
   }
 
   async request(
-    method: "GET" | "POST" | "PUT" | "PATCH",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     options: RequestOptions = {},
   ): Promise<unknown> {

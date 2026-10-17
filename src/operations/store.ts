@@ -14,6 +14,7 @@ const OP_FILE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const MAX_OPERATION_BYTES = 2 * 1024 * 1024;
 const MAX_VAULT_BYTES = 64 * 1024;
 const MAX_LOCK_BYTES = 4 * 1024;
+const releasedLocalLocks = new Set<string>();
 
 const lockMetaSchema = z
   .object({
@@ -136,6 +137,13 @@ export class OperationStore {
   private async readStateFile(relative: string, maxBytes: number): Promise<Buffer | undefined> {
     const root = this.canonicalStateDir ?? path.resolve(this.stateDir);
     try {
+      const info = await fsp.lstat(path.join(root, relative)).catch((e: unknown) => {
+        if (isEnoent(e)) return undefined;
+        throw e;
+      });
+      if (info && ((info.mode & 0o077) !== 0 || (typeof process.getuid === "function" && info.uid !== process.getuid()))) {
+        throw new AppError("UNSAFE_PATH", "State files must be private and owned by the current user.");
+      }
       return await readProjectBytes(root, relative, maxBytes);
     } catch (err) {
       if (err instanceof AppError && err.code === "UNSAFE_PATH") {
@@ -148,9 +156,10 @@ export class OperationStore {
     }
   }
 
-  async withLock<T>(run: () => Promise<T>): Promise<T> {
+  async withLock<T>(run: () => Promise<T>, scope = "operations"): Promise<T> {
     await this.init();
-    const lockPath = path.join(this.operationsDir(), "operations.lock");
+    if (!/^[a-zA-Z0-9-]{1,128}$/.test(scope)) throw new AppError("INVALID_LOCK", "Invalid state transaction scope.");
+    const lockPath = path.join(this.operationsDir(), `${scope}.lock`);
     const nonce = randomBytes(12).toString("hex");
     const payload = JSON.stringify({ pid: process.pid, hostname: hostname(), nonce });
     let ownIno: number | undefined;
@@ -182,7 +191,7 @@ export class OperationStore {
         }
         let meta;
         try {
-          const raw = await this.readStateFile("operations/operations.lock", MAX_LOCK_BYTES);
+          const raw = await this.readStateFile(`operations/${scope}.lock`, MAX_LOCK_BYTES);
           if (!raw) throw new Error("missing");
           meta = lockMetaSchema.parse(JSON.parse(raw.toString("utf8")));
         } catch {
@@ -197,7 +206,7 @@ export class OperationStore {
         } catch (killErr) {
           alive = (killErr as NodeJS.ErrnoException).code !== "ESRCH";
         }
-        if (alive) {
+        if (alive && !(meta.pid === process.pid && releasedLocalLocks.has(meta.nonce))) {
           throw new AppError("FILE_BUSY", "Another process holds the operations lock.");
         }
         const recheck = await fsp.lstat(lockPath).catch(() => undefined);
@@ -217,6 +226,8 @@ export class OperationStore {
     try {
       return await run();
     } finally {
+      releasedLocalLocks.add(nonce);
+      if (releasedLocalLocks.size > 1024) releasedLocalLocks.delete(releasedLocalLocks.values().next().value!);
       const current = await fsp.lstat(lockPath).catch(() => undefined);
       if (current && !current.isSymbolicLink() && current.ino === ownIno) {
         const content = await fsp.readFile(lockPath, "utf8").catch(() => "");
@@ -288,6 +299,31 @@ export class OperationStore {
   async listForProject(projectPath: string): Promise<Operation[]> {
     const all = await this.listAll();
     return all.filter((op) => op.projectPath === projectPath);
+  }
+
+  /** Versioned public journals share the same private directory and locking rules. */
+  async readRecord(name: string): Promise<unknown | undefined> {
+    await this.init();
+    if (!/^plan-[0-9a-f-]{36}\.json$/.test(name)) throw new AppError("NOT_FOUND", "Plan not found.");
+    const raw = await this.readStateFile(`operations/${name}`, MAX_OPERATION_BYTES);
+    if (!raw) return undefined;
+    try { return JSON.parse(raw.toString("utf8")); }
+    catch { throw new AppError("CORRUPT_STATE", "The stored plan is invalid."); }
+  }
+
+  async writeRecord(name: string, value: unknown): Promise<void> {
+    await this.init();
+    if (!/^plan-[0-9a-f-]{36}\.json$/.test(name)) throw new AppError("NOT_FOUND", "Plan not found.");
+    const raw = JSON.stringify(value);
+    if (Buffer.byteLength(raw) > MAX_OPERATION_BYTES) throw new AppError("STATE_TOO_LARGE", "The plan exceeds the journal size limit.");
+    // Validate existing state permissions before replacing it.
+    await this.readStateFile(`operations/${name}`, MAX_OPERATION_BYTES);
+    await atomicWritePrivate(path.join(this.operationsDir(), name), raw);
+  }
+
+  async listRecords(): Promise<string[]> {
+    await this.init();
+    return (await fsp.readdir(this.operationsDir())).filter((n) => /^plan-[0-9a-f-]{36}\.json$/.test(n)).sort();
   }
 
   async writeVault(id: string, secret: { password: string }): Promise<void> {

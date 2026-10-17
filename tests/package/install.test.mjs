@@ -52,22 +52,7 @@ function parsePackJson(stdout) {
   return parsed[0];
 }
 
-const expectedTools = [
-  "analyze_project_infra",
-  "cancel_operation",
-  "check_domain_availability",
-  "check_provider_connections",
-  "execute_infrastructure_change",
-  "get_operation",
-  "get_resource_status",
-  "inspect_vercel_domain",
-  "list_operations",
-  "prepare_infrastructure_change",
-  "propose_infra_plan",
-  "reconcile_operation",
-  "search_domains",
-  "write_env_secrets",
-];
+const expectedTools = ["analyze_project_infra", "cancel_infrastructure_step", "check_provider_connections", "discover_providers", "execute_infrastructure_step", "get_infrastructure_plan", "list_infrastructure_plans", "list_provider_capabilities", "prepare_infrastructure_plan", "propose_infrastructure_plan", "propose_teardown_plan", "quote_domain", "reconcile_infrastructure_step", "search_domains", "verify_infrastructure_plan", "write_env_secrets"];
 
 test("the packed artifact installs and runs in a clean consumer", { timeout: 240_000 }, async () => {
   const packDir = await fixture("mcp-pack-");
@@ -118,7 +103,7 @@ test("the packed artifact installs and runs in a clean consumer", { timeout: 240
   ]);
   for (const file of paths) {
     assert.ok(
-      file === "package.json" || file === "README.md" || /^dist\/.*\.(js|d\.ts|js\.map)$/.test(file),
+      ["package.json", "README.md", "IMPLEMENTATION_STATUS.md", "DEPLOYMENT.md", "skills/infrastructure-chat/SKILL.md"].includes(file) || /^dist\/.*\.(js|d\.ts|js\.map)$/.test(file),
       `unexpected file in package: ${file}`,
     );
     const base = file.split("/").pop();
@@ -206,20 +191,18 @@ console.log("api-ok");`,
     assert.strictEqual(analysis.isError, undefined);
     const analysisData = JSON.parse(analysis.content.find((block) => block.type === "text").text);
     assert.ok(Array.isArray(analysisData.frameworks));
-    assert.ok(Array.isArray(analysisData.stackRequirements));
+    assert.ok(Array.isArray(analysisData.capabilities));
 
     const plan = await client.callTool({
-      name: "propose_infra_plan",
-      arguments: { stackRequirements: ["hosting"], maxMonthlyBudgetUsd: 20, commercialUse: true },
+      name: "propose_infrastructure_plan",
+      arguments: { projectPath: app, constraints: { maxMonthlyBudgetUsd: 20, commercialUse: true } },
     });
     assert.strictEqual(plan.isError, undefined);
     const planData = JSON.parse(plan.content.find((block) => block.type === "text").text);
-    assert.strictEqual(planData.budgetPolicy, "approved_estimates");
-    assert.strictEqual(planData.estimatesAreHardCaps, false);
-    assert.strictEqual(typeof planData.pricingReviewedAt, "string");
-    assert.strictEqual(typeof planData.pricingStale, "boolean");
+    assert.strictEqual(planData.version, 2);
+    assert.ok(Array.isArray(planData.steps));
     assert.ok(Array.isArray(planData.alternatives));
-    assert.ok(Array.isArray(planData.warnings));
+    assert.ok(Array.isArray(planData.rejected));
 
     const secrets = await client.callTool({
       name: "write_env_secrets",

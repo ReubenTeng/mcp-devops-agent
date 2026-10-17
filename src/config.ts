@@ -36,7 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd: string = p
     adapters = z.array(installedAdapterSchema).max(64).parse(JSON.parse(env.MCP_DEVOPS_ADAPTERS ?? "[]"));
     discoverySources = z.array(z.string().url().refine((v) => { const u = new URL(v); return u.protocol === "https:" && !u.username && !u.password && !u.port && !u.search; })).max(16).parse(JSON.parse(env.MCP_DEVOPS_DISCOVERY_SOURCES ?? "[]"));
   } catch { throw new AppError("INVALID_CONFIG", "Adapter and discovery configuration is invalid; use pinned absolute file paths and HTTPS catalog URLs."); }
-  const credentialNames = [...new Set(adapters.flatMap((a) => a.credentialNames))];
+  const credentialNames = [...new Set(["GITHUB_TOKEN", ...adapters.flatMap((a) => a.credentialNames)])];
   let projectRoots: string[];
   const rootsRaw = env.MCP_DEVOPS_PROJECT_ROOTS;
   if (rootsRaw === undefined) {

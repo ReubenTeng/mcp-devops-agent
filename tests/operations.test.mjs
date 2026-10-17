@@ -12,7 +12,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-const { createServer } = await import("../dist/server.js");
+const { createLegacyServer: createServer } = await import("../dist/legacy-server.js");
 
 const TOKEN = "synthetic-token-sentinel";
 const SECRET_VALUE = "synthetic-test-secret";
@@ -163,7 +163,7 @@ test("approved create_vercel_project performs exactly one POST and stores safe s
     const stored = await readFile(opFile, "utf8");
     assert.ok(!stored.includes(TOKEN));
 
-    const { createServer: createAgain } = await import("../dist/server.js");
+    const { createLegacyServer: createAgain } = await import("../dist/legacy-server.js");
     const server2 = createAgain({ projectRoots: [fixture.root], stateDir: fixture.stateDir, credentials: CREDS }, { fetch: impl });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const client2 = new Client({ name: "ops-restart", version: "0" }, { capabilities: {} });
@@ -1539,7 +1539,7 @@ test("corrupt operation records block new work and are never overwritten", async
     const fixture = await makeFixture();
     const ops = await seed(fixture);
     const garbage = join(ops, `${randomUUID()}.json`);
-    await writeFile(garbage, "{not json");
+    await writeFile(garbage, "{not json", { mode: 0o600 });
     const { impl } = makeFetch(vercelRoutes);
     await withClient({ fixture, fetchImpl: impl, approve: true }, async ({ client }) => {
       const res = await client.callTool(prepareArgs(fixture));
@@ -1552,7 +1552,7 @@ test("corrupt operation records block new work and are never overwritten", async
     const ops = await seed(fixture);
     const id = randomUUID();
     const bad = { ...baseOp(id, fixture), estimate: { ...baseOp(id, fixture).estimate, upfrontCents: -5 } };
-    await writeFile(join(ops, `${id}.json`), JSON.stringify(bad));
+    await writeFile(join(ops, `${id}.json`), JSON.stringify(bad), { mode: 0o600 });
     const { impl } = makeFetch(vercelRoutes);
     await withClient({ fixture, fetchImpl: impl, approve: true }, async ({ client }) => {
       const res = await client.callTool(prepareArgs(fixture));
@@ -1564,7 +1564,7 @@ test("corrupt operation records block new work and are never overwritten", async
     const ops = await seed(fixture);
     const id = randomUUID();
     const bad = { ...baseOp(id, fixture), createdAt: "not-a-timestamp" };
-    await writeFile(join(ops, `${id}.json`), JSON.stringify(bad));
+    await writeFile(join(ops, `${id}.json`), JSON.stringify(bad), { mode: 0o600 });
     const { impl } = makeFetch(vercelRoutes);
     await withClient({ fixture, fetchImpl: impl, approve: true }, async ({ client }) => {
       const res = await client.callTool(prepareArgs(fixture));
@@ -1643,7 +1643,7 @@ test("operation locks reject live or unreadable holders and take over dead ones"
     const { stdout } = await promisify(execFile)(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
     const deadPid = Number(stdout);
     assert.ok(Number.isInteger(deadPid) && deadPid > 0);
-    await writeFile(join(ops, "operations.lock"), JSON.stringify({ pid: deadPid, hostname: hostname(), nonce }));
+    await writeFile(join(ops, "operations.lock"), JSON.stringify({ pid: deadPid, hostname: hostname(), nonce }), { mode: 0o600 });
     const { impl } = makeFetch(vercelRoutes);
     await withClient({ fixture, fetchImpl: impl, approve: true }, async ({ client }) => {
       const res = resultData(await client.callTool(prepareArgs(fixture)));

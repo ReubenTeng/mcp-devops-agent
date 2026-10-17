@@ -4,12 +4,19 @@ This checkpoint is work in progress. Provider credentials alone do not complete
 the requested v2 system.
 
 The existing Vercel, Supabase and Cloudflare operations have synthetic coverage.
-The v2 schemas, workload analyzer, provider catalog and pinned external adapter
-loader are initial foundations. The public server still exposes the legacy tools.
+The public server exposes the v2 tools. Workload analysis, bounded capability
+ranking, persistent plans, dependency steps, approval-bound adapter execution,
+budget reservations, cancellation, recovery migration, registrar quote aggregation,
+Cloudflare purchase/DNS orchestration and separate teardown proposals are implemented.
+GitHub Pages supports separately approved source refs, settings, builds, status,
+reconciliation and site removal for public repositories with prebuilt static content.
+Public HTTPS probes reject private networks and redirects; database/application
+semantics still require adapter verification. External adapters remain explicitly
+installed and checksum-pinned. The legacy provider implementation remains covered
+by its regression harness.
 
-Remaining integration includes the capability planner, durable plan execution,
-legacy recovery migration, provider conformance, domain marketplace, reviewed
-OpenTofu modules, deployment verification and the additional provider adapters.
+Remaining integration includes complete new-provider coverage, reviewed OpenTofu
+modules, additional registrar purchases and comprehensive application verification.
 Catalog entries describe recommendation leads, not tested executable integrations.
 
 Live provider acceptance requires isolated accounts and actual client approvals.

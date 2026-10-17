@@ -58,6 +58,7 @@ export const actionSchema = z.discriminatedUnion("kind", [
       ttl: z.number().int().min(1).max(86400).default(1),
       proxied: z.boolean().default(false),
       recordId: id.optional(),
+      vercelSource: z.object({ projectId: id, domain: domainSchema }).strict().optional(),
     })
     .strict(),
   z
@@ -80,6 +81,7 @@ export const actionSchema = z.discriminatedUnion("kind", [
       projectRef: z.string().regex(/^[a-z0-9]{20}$/),
       includeServiceRole: z.boolean().default(false),
       sourceOperationId: z.string().uuid().optional(),
+      publicEnvAliases: z.record(envKey, z.enum(["SUPABASE_URL", "SUPABASE_PUBLIC_KEY"])).optional(),
     })
     .strict(),
   z

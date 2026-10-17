@@ -42,7 +42,7 @@ export function assertPublic(value: unknown, credentials: Record<string, string>
         throw new AppError("UNSAFE_DATA", "Credential material is not permitted in public data.");
     } else if (Array.isArray(v)) v.forEach((x) => visit(x, depth + 1));
     else if (v && typeof v === "object") for (const [key, x] of Object.entries(v)) {
-      if (/^(?:__proto__|prototype|constructor|password|secret|token|api_key|apikey|access_token|secretapikey|credentials|env|envVars)$/i.test(key))
+      if (/^(?:__proto__|prototype|constructor|password|secret|token|api_key|apikey|access_token|secretapikey|credentials|env|envVars|registrant|registrantInfo|registrantContact|contacts|contactInfo|firstName|lastName|street|postalCode|phoneNumber)$/i.test(key))
         throw new AppError("UNSAFE_DATA", "Use credential setting names or secret references, never values in tool arguments or adapter output.");
       visit(x, depth + 1);
     }
@@ -81,8 +81,9 @@ export async function loadInstalled(spec: InstalledAdapter, config: AppConfig): 
       if (signal?.aborted) throw new AppError("CANCELLED", "The request was cancelled.");
       const all = credentialsFor(config);
       const environment = Object.fromEntries(declared.filter((k) => all[k]).map((k) => [k, all[k]!]));
+      const secretValues = Object.fromEntries(manifest.credentials.filter((k) => all[k]).map((k) => [k, all[k]!]));
       if (manifest.credentials.some((k) => !environment[k])) throw new AppError("MISSING_CREDENTIAL", "Configure the adapter's declared credentials before calling it.");
-      assertPublic(request, all);
+      assertPublic(request, secretValues);
       const work = await mkdtemp(path.join(tmpdir(), "mcp-adapter-"));
       try {
         // A standalone bundle is copied to the isolated working directory. No project files are copied.
@@ -105,7 +106,7 @@ export async function loadInstalled(spec: InstalledAdapter, config: AppConfig): 
         });
         let response: unknown;
         try { response = JSON.parse(raw); } catch { throw new AppError("INVALID_ADAPTER_RESPONSE", "Adapter returned invalid JSON."); }
-        assertPublic(response, all);
+        assertPublic(response, secretValues);
         return response;
       } finally { await rm(work, { recursive: true, force: true }); }
     },

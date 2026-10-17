@@ -21,9 +21,15 @@ Environment:
                             server may access. Defaults to the working directory.
   MCP_DEVOPS_STATE_DIR      Private state directory (default:
                             ~/.local/state/mcp-devops-agent).
+  MCP_DEVOPS_ADAPTERS       JSON array of explicitly installed manifest/entrypoint
+                            paths with SHA-256 pins and allowed credential names.
+  MCP_DEVOPS_DISCOVERY_SOURCES
+                          Optional official JSON manifest catalog URLs; used
+                          only when a tool explicitly enables network discovery.
   VERCEL_TOKEN, VERCEL_TEAM_ID
   SUPABASE_ACCESS_TOKEN
   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+  GITHUB_TOKEN             GitHub Pages for eligible public repositories.
                           Provider credentials are loaded from the process
                           environment or the server working directory .env;
                           never pass them as arguments.
@@ -49,6 +55,7 @@ function formatDoctorReport(report: DoctorReport): string {
     const detail = provider.configured ? "configured" : `missing: ${provider.missingSettings.join(", ")}`;
     lines.push(`Provider ${provider.provider}: ${detail} (connection not verified offline)`);
   }
+  lines.push(`Provider github-pages: ${report.adapters.githubPagesConfigured ? "configured" : "missing GITHUB_TOKEN"} (repository access verified during prepare)`);
   lines.push(`Approval support: ${report.approvalSupport}`);
   for (const warning of report.warnings) {
     lines.push(`Warning: ${warning}`);

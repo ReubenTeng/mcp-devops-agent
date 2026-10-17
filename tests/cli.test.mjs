@@ -50,22 +50,7 @@ async function run(args, { cwd, env, timeout = 10000 } = {}) {
   }
 }
 
-const expectedTools = [
-  "analyze_project_infra",
-  "cancel_operation",
-  "check_domain_availability",
-  "check_provider_connections",
-  "execute_infrastructure_change",
-  "get_operation",
-  "get_resource_status",
-  "inspect_vercel_domain",
-  "list_operations",
-  "prepare_infrastructure_change",
-  "propose_infra_plan",
-  "reconcile_operation",
-  "search_domains",
-  "write_env_secrets",
-];
+const expectedTools = ["analyze_project_infra", "cancel_infrastructure_step", "check_provider_connections", "discover_providers", "execute_infrastructure_step", "get_infrastructure_plan", "list_infrastructure_plans", "list_provider_capabilities", "prepare_infrastructure_plan", "propose_infrastructure_plan", "propose_teardown_plan", "quote_domain", "reconcile_infrastructure_step", "search_domains", "verify_infrastructure_plan", "write_env_secrets"];
 
 test("help works without configuration and never reads env or credentials", async () => {
   const dir = await fixture();

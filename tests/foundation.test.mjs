@@ -16,7 +16,7 @@ const files = await import("../dist/utils/files.js");
 const env = await import("../dist/utils/env.js");
 const budget = await import("../dist/utils/budget.js");
 const planning = await import("../dist/planning.js");
-const { createServer } = await import("../dist/server.js");
+const { createLegacyServer: createServer } = await import("../dist/legacy-server.js");
 const { analyzeProject } = await import("../dist/tools/scan.js");
 
 const tempDirs = [];

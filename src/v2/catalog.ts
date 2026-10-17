@@ -38,10 +38,11 @@ const catalog: [string, string, Capability[], string, string[]][] = [
 ];
 
 export function catalogManifests(): Manifest[] {
+  const account = /(?:ACCOUNT_ID|TEAM_ID|OWNER_ID|CLIENT_IP|API_USER|PROJECT|REGION|TENANT_ID|CLIENT_ID|SUBSCRIPTION_ID|EMAIL)$/;
   return catalog.map(([id, name, capabilities, documentation, credentials]) => manifestSchema.parse({
     protocolVersion: 2, id, version: "2.0.0", name, tier: "catalog", capabilities,
     runtimes: [], frameworks: [], regions: [], compliance: [], commercialUse: "unverified", reliability: "unverified",
-    credentials, accountSettings: [], operations: [], teardown: false, reconciliation: "manual", artifactAccess: false,
+    credentials: credentials.filter((k) => !account.test(k)), accountSettings: credentials.filter((k) => account.test(k)), operations: [], teardown: false, reconciliation: "manual", artifactAccess: false,
     pricing: { monthlyCents: null, upfrontCents: null, reviewedAt: null, source: documentation, assumptions: ["Provider capabilities and commercial terms require adapter validation; price is unknown."] },
     documentation: [documentation], limits: ["Recommendation lead only. Install a validated adapter before preparing mutations."],
   }));
@@ -51,12 +52,12 @@ export function legacyManifests(): Manifest[] {
   const make = (id: string, capabilities: Capability[], credentials: string[], operations: string[], monthlyCents: number | null, source: string): Manifest => manifestSchema.parse({
     protocolVersion: 2, id, name: id, version: "2.0.0", tier: "executable", capabilities,
     runtimes: ["node", "static"], frameworks: [], regions: [], compliance: [], commercialUse: "allowed", reliability: "production",
-    credentials, accountSettings: [], operations, teardown: false, reconciliation: "identity", artifactAccess: id === "vercel",
+    credentials: credentials.filter((k) => !/(?:TEAM_ID|ACCOUNT_ID)$/.test(k)), accountSettings: credentials.filter((k) => /(?:TEAM_ID|ACCOUNT_ID)$/.test(k)), operations, teardown: false, reconciliation: "identity", artifactAccess: id === "vercel",
     pricing: { monthlyCents, upfrontCents: 0, reviewedAt: PRICING_REVIEWED_AT, source, assumptions: ["Baseline only. Actual account plan is checked at prepare; usage, taxes and unrelated spend excluded."] }, documentation: [source], limits: [],
   });
   return [
     make("vercel", ["static", "serverless"], ["VERCEL_TOKEN", "VERCEL_TEAM_ID"], ["create_vercel_project", "deploy_vercel", "sync_env_to_vercel", "connect_vercel_domain", "verify_vercel_domain", "rollback_vercel"], 2000, "https://vercel.com/pricing"),
     make("supabase", ["postgres", "auth", "storage"], ["SUPABASE_ACCESS_TOKEN"], ["create_supabase_project", "sync_supabase_env"], 3500, "https://supabase.com/pricing"),
-    make("cloudflare", ["dns", "registrar"], ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"], ["register_domain", "create_cloudflare_zone", "upsert_dns_record"], 0, "https://developers.cloudflare.com/dns/"),
+    make("cloudflare", ["dns", "registrar"], ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"], ["register_domain", "create_cloudflare_zone", "upsert_dns_record", "configure_vercel_dns"], 0, "https://developers.cloudflare.com/dns/"),
   ];
 }

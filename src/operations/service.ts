@@ -11,6 +11,7 @@ import { CloudflareProvider } from "../providers/cloudflare.js";
 import { ProviderError } from "../providers/http.js";
 import { SupabaseProvider } from "../providers/supabase.js";
 import { VercelProvider } from "../providers/vercel.js";
+import { vercelDeploymentStatus } from "../providers/status.js";
 import { usdToCents, decimalUsdToCents } from "../utils/budget.js";
 import { collectDeploymentManifest } from "../utils/deployment.js";
 import { readProjectBytes, resolveProjectPath } from "../utils/files.js";
@@ -360,6 +361,11 @@ export class OperationService {
         };
       }
       case "upsert_dns_record": {
+        if (action.vercelSource) {
+          const config = await this.vercel(signal).domainConfig(action.vercelSource.projectId, action.vercelSource.domain);
+          const recommended = action.type === "CNAME" ? config.recommendedCNAME?.map((r) => r.value) : action.type === "A" ? config.recommendedIPv4?.flatMap((r) => r.value) : [];
+          if (action.name !== action.vercelSource.domain || !recommended?.includes(action.content)) throw new AppError("PRECONDITION_CHANGED", "Vercel's recommended DNS record changed. Prepare the DNS step again.");
+        }
         const account = await this.cloudflare(signal).account();
         const zone = await this.cloudflare(signal).getZone(action.zoneId);
         const normalized = normalizeDnsName(action.name, zone.name);
@@ -417,6 +423,7 @@ export class OperationService {
           projectRef: action.projectRef,
           projectName: project.name,
           includeServiceRole: action.includeServiceRole,
+          ...(action.publicEnvAliases ? { publicEnvAliases: action.publicEnvAliases } : {}),
         };
         if (action.sourceOperationId) {
           const source = await this.store.load(action.sourceOperationId);
@@ -543,6 +550,9 @@ export class OperationService {
     if (op.action.kind === "upsert_dns_record" && preview) {
       parts.push(`DNS record change: ${JSON.stringify(preview)}.`);
     }
+    if (op.action.kind === "register_domain") {
+      parts.push(`Domain purchase terms: registrar Cloudflare; exact domain ${op.action.domain}; years ${op.action.years}; registration price $${op.preconditions.registrationCost}; renewal price $${op.preconditions.renewalCost}; auto-renew disabled; privacy uses the account's registration defaults; taxes and privacy surcharges are not independently quoted. Required billing, registrant contact and agreement setup must already be completed in the account. No atomic price cap is available.`);
+    }
     if (op.action.kind === "sync_supabase_env" && op.action.includeServiceRole) {
       parts.push("Privileged service-role credentials will be written to the local .env file; they grant full database access.");
     }
@@ -556,10 +566,10 @@ export class OperationService {
     const root = await resolveProjectPath(input.projectPath, this.config.projectRoots);
     await this.store.init();
     await this.assertStateOutsideProject(root);
+    const opId = crypto.randomUUID();
+    const preflight = await this.preflight(input.action, input, root, opId);
     return this.store.withLock(async () => {
       const now = new Date();
-      const opId = crypto.randomUUID();
-      const preflight = await this.preflight(input.action, input, root, opId);
       const paid = preflight.recurringItems.length > 0 || preflight.upfrontCents > 0;
       if (paid && this.pricingStale(now)) {
         throw new AppError("PRICING_STALE", "Pricing data is stale and must be reviewed before preparing a paid change.");
@@ -689,22 +699,22 @@ export class OperationService {
         throw new AppError("CANCELLED", "The request was cancelled before the change started. No changes were made.");
       }
       await this.executePreflight(op, signal);
-      const fresh = await this.store.load(op.id);
-      if (fresh.status !== "prepared") {
-        throw new AppError(
-          "INVALID_STATE",
-          "This operation changed state while approval was pending. Review it before retrying.",
-        );
-      }
-
-      if (op.action.kind === "create_supabase_project") {
-        const password = randomBytes(32).toString("base64url");
-        await this.store.writeVault(op.id, { password });
-      }
-
-      op.status = "running";
-      op.events.push({ at: new Date().toISOString(), event: "approved_and_started" });
-      await this.store.save(op);
+      await this.store.withLock(async () => {
+        const fresh = await this.store.load(op.id);
+        if (fresh.status !== "prepared" || JSON.stringify(fresh) !== JSON.stringify(op)) {
+          throw new AppError("INVALID_STATE", "This operation changed while approval was pending. Review it before retrying.");
+        }
+        const totals = aggregateCosts(await this.store.listForProject(op.projectPath), new Date());
+        if (totals.monthlyCents > usdToCents(op.maxMonthlyBudgetUsd) || totals.upfrontCents > usdToCents(op.maxUpfrontBudgetUsd)) {
+          throw new AppError("BUDGET_EXCEEDED", "The operation no longer fits the project budget.");
+        }
+        if (op.action.kind === "create_supabase_project") {
+          await this.store.writeVault(op.id, { password: randomBytes(32).toString("base64url") });
+        }
+        op.status = "running";
+        op.events.push({ at: new Date().toISOString(), event: "approved_and_started" });
+        await this.store.save(op);
+      });
 
       const ctx: EffectContext = { mutationStarted: false, mutationCompleted: false };
       try {
@@ -749,7 +759,7 @@ export class OperationService {
         await this.store.save(op);
         throw err;
       }
-    });
+    }, `operation-${operationId}`);
   }
 
   private async perform(
@@ -812,12 +822,7 @@ export class OperationService {
         };
         const readyState = deployment.readyState ?? "";
         return {
-          status:
-            readyState === "READY"
-              ? "succeeded"
-              : readyState === "ERROR" || readyState === "CANCELED" || readyState === "BLOCKED"
-                ? "failed"
-                : "pending",
+          status: vercelDeploymentStatus(readyState),
           result: op.result,
           costCommitted: true,
         };
@@ -1002,6 +1007,11 @@ export class OperationService {
           secrets.SUPABASE_DB_PASSWORD = vault.password;
           secrets.DATABASE_URL = `postgresql://postgres:${encodeURIComponent(vault.password)}@db.${action.projectRef}.supabase.co:5432/postgres?sslmode=require`;
         }
+        for (const [name, source] of Object.entries(action.publicEnvAliases ?? {})) {
+          const value = source === "SUPABASE_URL" ? secrets.SUPABASE_URL : publishable?.apiKey ?? anon?.apiKey;
+          if (!value) throw new AppError("MISSING_PROVIDER_KEY", "The requested public Supabase setting is unavailable.");
+          secrets[name] = value;
+        }
         const updatedKeys = await change(() => updateEnvSecrets(op.projectPath, secrets));
         op.result = { projectRef: action.projectRef, updatedKeys };
         return { status: "succeeded", result: op.result, costCommitted: true };
@@ -1122,7 +1132,7 @@ export class OperationService {
 
   async getOperation(operationId: string, refresh: boolean): Promise<object> {
     await this.store.init();
-    return this.store.withLock(async () => {
+    const read = async () => {
       const op = await this.store.load(operationId);
       await this.assertOperationRoot(op);
       let refreshError: string | undefined;
@@ -1135,7 +1145,8 @@ export class OperationService {
         }
       }
       return { ...this.safeOperation(op), refreshError };
-    });
+    };
+    return refresh ? this.store.withLock(read, `operation-${operationId}`) : read();
   }
 
   private async assertProviderAccount(op: Operation, signal?: AbortSignal): Promise<void> {
@@ -1167,8 +1178,7 @@ export class OperationService {
       if (deploymentId) {
         const deployment = await this.vercel().getDeployment(deploymentId);
         op.result = { ...(op.result ?? {}), readyState: deployment.readyState, url: deployment.url };
-        if (deployment.readyState === "READY") next = "succeeded";
-        else if (deployment.readyState === "ERROR" || deployment.readyState === "CANCELED" || deployment.readyState === "BLOCKED") next = "failed";
+        next = vercelDeploymentStatus(deployment.readyState);
       }
     } else if (action.kind === "create_supabase_project") {
       const ref = op.result?.ref as string | undefined;
@@ -1340,11 +1350,11 @@ export class OperationService {
         const deployments = await this.vercel().listDeployments(action.projectId);
         const match = deployments.find((deployment) => deployment.operationId === op.id);
         if (match) {
-          if (match.readyState === "ERROR" || match.readyState === "CANCELED") {
+          if (vercelDeploymentStatus(match.readyState) === "failed") {
             found = { status: "failed", result: { deploymentId: match.id, readyState: match.readyState } };
           } else {
             found = {
-              status: match.readyState === "READY" ? "succeeded" : "pending",
+              status: vercelDeploymentStatus(match.readyState),
               result: { deploymentId: match.id, readyState: match.readyState },
             };
           }
@@ -1491,7 +1501,7 @@ export class OperationService {
       op.events.push({ at: new Date().toISOString(), event: `reconciled_${found.status}` });
       await this.store.save(op);
       return { operationId: op.id, status: op.status, result: op.result };
-    });
+    }, `operation-${operationId}`);
   }
 
   async getResourceStatus(input: {

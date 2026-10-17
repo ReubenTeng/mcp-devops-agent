@@ -1,6 +1,6 @@
 {
   "name": "mcp-devops-agent",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Zero-DevOps infrastructure provisioning MCP server.",
   "type": "module",
@@ -19,7 +19,10 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "dist/**/*.js.map",
-    "README.md"
+    "README.md",
+    "IMPLEMENTATION_STATUS.md",
+    "DEPLOYMENT.md",
+    "skills/infrastructure-chat/SKILL.md"
   ],
   "engines": {
     "node": ">=20"

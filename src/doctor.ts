@@ -28,6 +28,7 @@ export interface DoctorReport {
   filesChanged: false;
   errors: Array<{ code: string; message: string }>;
   warnings: string[];
+  adapters: { configured: number; checksumVerification: "performed_when_loaded"; trustBoundary: string; githubPagesConfigured: boolean };
 }
 
 const REQUIRED_SETTINGS: Array<{ provider: "vercel" | "supabase" | "cloudflare"; names: string[] }> = [
@@ -154,6 +155,7 @@ export async function buildDoctorReport(
     filesChanged: false,
     errors,
     warnings,
+    adapters: { configured: 0, checksumVerification: "performed_when_loaded", githubPagesConfigured: false, trustBoundary: "Installed executable adapters are trusted code. They run out of process with declared credentials, bounded I/O and timeouts, but are not sandboxed from the operating system." },
   };
 
   if (!report.runtime.supported) {
@@ -166,6 +168,8 @@ export async function buildDoctorReport(
   let config: AppConfig | undefined;
   try {
     config = loadConfig(env, cwd);
+    report.adapters.configured = config.adapters?.length ?? 0;
+    report.adapters.githubPagesConfigured = !!config.providerEnvironment?.GITHUB_TOKEN;
     report.configuration.valid = true;
   } catch (err) {
     if (err instanceof AppError) {
@@ -178,6 +182,7 @@ export async function buildDoctorReport(
   let rootsHealthy = true;
   let stateHealthy = true;
   if (config) {
+    if (config.adapters?.length) warnings.push(report.adapters.trustBoundary);
     for (const root of config.projectRoots) {
       try {
         const resolved = await resolveProjectPath(root, [root]);
@@ -252,6 +257,6 @@ export async function buildDoctorReport(
 
   report.readyForLocalTools =
     report.runtime.supported && report.configuration.valid && rootsHealthy && stateHealthy && errors.length === 0;
-  report.readyForLiveChecks = report.readyForLocalTools && report.providers.every((provider) => provider.configured);
+  report.readyForLiveChecks = report.readyForLocalTools && (report.providers.some((provider) => provider.configured) || report.adapters.githubPagesConfigured);
   return report;
 }
