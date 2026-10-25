@@ -3,6 +3,22 @@ import { usdToCents } from "./utils/budget.js";
 
 export const PRICING_REVIEWED_AT = "2026-10-10";
 
+// Reviewed separately so a Render review does not refresh other providers' prices.
+export const RENDER_PRICING = {
+  reviewedAt: "2026-10-25",
+  source: "https://render.com/pricing",
+  plans: {
+    starter: { apiPlan: "0.5c-512mb", monthlyCents: 700 },
+    standard: { apiPlan: "1c-2g", monthlyCents: 2500 },
+  },
+  diskCentsPerGb: 25,
+  assumptions: [
+    "One paid service instance and its persistent disk in an existing workspace. No domain purchase or subscription upgrade.",
+    "Excludes workspace subscription fees, bandwidth, build usage, taxes, add-ons and unrelated spend. This estimate is not a billing cap.",
+    "The account API does not confirm billing eligibility or workspace subscription charges. Configure billing before execution.",
+  ],
+} as const;
+
 const PRICING_STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 const BASELINE_SCOPE = "baseline_subscription_estimate";
 const ESTIMATE_WARNING =

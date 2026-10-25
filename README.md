@@ -1,7 +1,11 @@
 # mcp-devops-agent
 
-A local MCP server for planning and provisioning infrastructure through chat.
+An MCP server for planning and provisioning infrastructure through chat.
 Node.js 20+, ESM, TypeScript. Version 2 replaces the v1 MCP schemas.
+
+Stdio is the default. `node dist/index.js serve-http` runs a remote service for
+one operator with private bearer authentication. See [HTTP setup](DEPLOYMENT.md#remote-http-service)
+for HTTPS, persistent state, project access and client requirements.
 
 ## Current implementation
 
@@ -9,8 +13,9 @@ The planner composes providers by capabilities, persists workload fingerprints,
 environments, budgets, adapter checksums, dependency steps and safe resource
 identities. Missing credentials produce setup instructions.
 
-Bundled mutations cover Vercel, Supabase, Cloudflare and prebuilt public GitHub
-Pages sites. More than thirty catalog
+Bundled mutations cover Vercel, Supabase, Cloudflare, prebuilt public GitHub
+Pages sites, and a Render template for a remote MCP service. The Render template
+uses a public GHCR image pinned by SHA-256 and one persistent disk. More than thirty catalog
 manifests supply recommendation leads. **Catalog support does not mean executable
 provisioning support.** Additional providers require explicitly installed,
 checksum-pinned executable adapters. Full cloud-provider coverage and reviewed
@@ -41,6 +46,8 @@ in the process environment or the server working directory `.env`, never chat:
 - `SUPABASE_ACCESS_TOKEN`
 - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
 - `GITHUB_TOKEN` for eligible prebuilt public GitHub Pages sites.
+- `RENDER_API_KEY`, `RENDER_OWNER_ID`, `RENDER_MCP_HTTP_TOKEN` for the Render
+  template. The last setting is the private bearer token for the hosted service.
 
 Existing accounts need billing, permissions and agreements configured. Project
 roots constrain local access, not cloud-token permissions.

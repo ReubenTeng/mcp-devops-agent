@@ -1,7 +1,7 @@
 # Running the infrastructure MCP server
 
-This package currently runs as a **local stdio MCP process** launched by a chat
-client. It is not an HTTP service and cannot be deployed to a static hosting site.
+This package runs as a **local stdio MCP process** by default. The `serve-http`
+command runs an HTTP service for one operator. Neither mode is a static website.
 The instructions below run the implemented v2 tools; they do not enable unfinished
 providers listed in [implementation status](IMPLEMENTATION_STATUS.md).
 
@@ -107,9 +107,192 @@ Point the MCP client at that directory's `node_modules/.bin/mcp-devops-agent`, o
 use its absolute `node_modules/mcp-devops-agent/dist/index.js` path with Node.
 The package is private and has not been published to the npm registry.
 
-## Hosted server status
+## Remote HTTP service
 
-Remote HTTP/Streamable HTTP transport, multi-user authentication, tenant isolation
-and hosted secret storage are not implemented. A shared internet-facing service
-requires those features; putting the current stdio process behind a web server
-does not provide them.
+Use one process and one operator. The service uses the installed MCP SDK's
+Streamable HTTP transport, with sessions and SSE. Each session gets its own MCP
+server and client capabilities. All sessions share the same operator, allowed
+project roots, provider credentials and private state. This mode does not provide
+tenant isolation or OAuth discovery. The client must support a private
+`Authorization: Bearer ...` header on every POST, GET and DELETE request. Clients
+that require OAuth login cannot use this mode without an authentication gateway.
+
+### Build and launch
+
+Use Node.js 20 or later. Build with:
+
+```sh
+npm ci --include=dev
+npm run build
+```
+
+Start with:
+
+```sh
+node dist/index.js serve-http
+```
+
+Set these values in the host's private environment configuration:
+
+- `MCP_DEVOPS_HTTP_TOKEN`: a private base64url token made from at least 32 random
+  bytes. Generate it with a password manager or another trusted local tool. Do not
+  put the token in a URL, shell argument, repository or chat. Rotate it by replacing
+  the environment value and restarting the service. All existing sessions then end.
+- `MCP_DEVOPS_HTTP_PUBLIC_URL`: the exact public HTTPS endpoint, such as
+  `https://your-service.onrender.com/mcp`. No query, fragment or URL credentials
+  are allowed. If unset on Render, the service uses `RENDER_EXTERNAL_URL` with
+  `/mcp` appended. HTTP is accepted only for a loopback URL during local tests.
+- `MCP_DEVOPS_HTTP_HOST`: use `0.0.0.0` for a host such as Render. The default is
+  `127.0.0.1`. The service also accepts `::1` and `::`.
+- `PORT`: the host's assigned port, or `3000` by default.
+- `MCP_DEVOPS_PROJECT_ROOTS`: a JSON array of absolute directories **on the remote
+  host**. The remote server cannot read paths on your computer. Stage the target
+  application source in those directories before analysis or deployment.
+- `MCP_DEVOPS_STATE_DIR`: a private state subdirectory on a persistent disk,
+  outside the allowed project directories. For example, mount a disk at
+  `/var/data` and use `/var/data/mcp-state` for state. Use another directory, such
+  as `/var/data/projects`, for staged application source. Existing state directories
+  must be owned by the service user with mode `0700`. Journals and vault files use
+  mode `0600`. The server creates missing state directories when a tool needs them.
+- Configure only the provider credentials that your target application needs.
+
+The listener starts only after HTTP configuration and local diagnostic checks
+pass. The diagnostic does not test provider authentication or client approval
+support. Keep a persistent state disk between deployments. Plan budgets and
+recorded resources depend on it.
+
+### HTTPS and health
+
+Use a host or reverse proxy that terminates HTTPS and streams SSE without response
+buffering. It must preserve the public `Host`, `Authorization`, MCP headers and
+request bodies. The service checks the exact public host and port. If an `Origin`
+header is present, it must equal the public URL's origin. Forwarded host headers
+do not replace these checks. The service does not enable cross-origin browser
+access. Use a native or backend MCP client.
+
+Keep the internal HTTP port behind the host's HTTPS proxy. Do not expose plaintext
+HTTP to the internet. Set the provider's health check to `GET /healthz`. This public
+endpoint returns only `{"status":"ok"}`. It checks process liveness, not provider
+connections or complete application health. MCP requests use `/mcp`.
+
+### Limits and shutdown
+
+The service allows eight sessions, 64 active authenticated HTTP requests, 128 TCP
+connections and 1 MiB per POST body. It rejects compressed bodies. Body reads have
+a ten-second deadline. Sessions expire after fifteen minutes without an incoming
+MCP request; an open SSE stream does not keep an idle session alive. There is no
+durable event replay or automatic mutation retry. Reinitialize after a session
+expires or the service restarts.
+
+An interrupted POST response closes its session and cancels pending approval.
+SIGTERM and SIGINT stop the listener, close sessions, cancel pending approvals and
+close HTTP connections. A mutation that already started can still complete or
+have an uncertain outcome. Use saved plans and read-only reconciliation after
+reconnection. Do not resubmit the mutation.
+
+Before live use, connect with a client that supports MCP form elicitation. Verify
+that approval and rejection both work. A missing approval feature blocks all
+mutations. Provider acceptance alone does not prove that an application works.
+
+### Render setup
+
+Use a paid Node.js web service with a persistent disk, one instance, the build
+command `npm ci --include=dev && npm run build`, the start command
+`node dist/index.js serve-http`, and health path `/healthz`. Disable automatic
+deploys if each deployment must have separate approval. Use the provider HTTPS
+address until a separate domain change is approved. Select a region and disk size
+in the host account.
+
+### Bundled Render adapter
+
+The executable Render adapter is included in the package. No external adapter
+installation is needed. Its reviewed template creates one remote MCP service and
+one persistent disk in a single approved API request. Creation also starts the
+initial deployment. The image must already be public on GitHub Container Registry
+and must be identified by its SHA-256 digest. Mutable tags and Git source builds
+are not accepted by this adapter.
+
+The adapter supports Starter and Standard compute with a disk from 1 to 20 GB.
+The reviewed service estimate is USD 7 per month for Starter or USD 25 for
+Standard, plus USD 0.25 per GB per month for the disk. The default is Starter
+with 1 GB: USD 7.25 per month and USD 0 upfront. This uses an existing workspace
+and buys no domain or subscription upgrade. Workspace subscription fees,
+bandwidth, build usage, taxes and unrelated spend are excluded. Estimates are not
+billing caps. Pricing was reviewed on 2026-10-25 using the
+[provider pricing page](https://render.com/pricing). Paid preparation stops after
+the thirty-day review period until the prices are reviewed again.
+
+Configure these settings privately in the infrastructure server that will run
+the provisioning tools:
+
+- `RENDER_API_KEY`: a Render API key with access to the chosen workspace.
+- `RENDER_OWNER_ID`: the exact existing workspace ID, beginning with `tea-`.
+- `RENDER_MCP_HTTP_TOKEN`: a private base64url token from at least 32 random bytes.
+  The adapter sends it to the hosted service as `MCP_DEVOPS_HTTP_TOKEN`. It does
+  not put the value in plans, approvals or tool results.
+
+The account check confirms workspace access. It cannot confirm billing eligibility
+or workspace subscription charges. Complete billing setup in Render before
+execution. The hosted service's provider credentials and access to other projects
+still require separate private setup.
+
+Build the supplied Dockerfile for Render's Linux AMD64 runtime. Replace the image
+account and tag with your own values:
+
+```sh
+docker build --platform linux/amd64 -t ghcr.io/your-account/mcp-devops-agent:release .
+```
+
+Publish that image to GHCR yourself, make it public, and obtain the registry digest.
+The Docker build copies only package metadata, TypeScript configuration and source.
+Environment files and operation state are excluded from its context. The final
+image contains the compiled server and production dependencies. Mount the host's
+persistent disk at `/var/data`. The template sets the state path to
+`/var/data/mcp-state`, the HTTP bind address to `0.0.0.0`, the command to
+`node dist/index.js serve-http`, and health path to `/healthz`.
+
+Use a new proposal after image publication and setup. For example, replace the
+image placeholder below with the exact published digest:
+
+```json
+{
+  "projectPath": "/absolute/path/to/mcp-devops-agent",
+  "constraints": {
+    "maxMonthlyBudgetUsd": 60,
+    "maxUpfrontBudgetUsd": 20,
+    "environment": "production",
+    "region": "singapore",
+    "storageGb": 1
+  },
+  "overrides": {
+    "blueprint": "container_service",
+    "capabilities": ["container", "disk"],
+    "providers": {"container": "render", "disk": "render"},
+    "parameters": {
+      "render": {
+        "image": "ghcr.io/your-account/mcp-devops-agent@sha256:<64-character-digest>",
+        "plan": "starter"
+      }
+    }
+  }
+}
+```
+
+Then prepare and approve the `provider-render` step. The approval lists the image,
+service name, workspace, compute plan, disk size, private token transfer and initial
+deployment. The adapter adds an operation-specific name suffix, disables automatic
+deploys and creates one instance. The deployment remains pending until a read-only
+reconciliation confirms its image and live status. A lost creation response is
+recovered by exact workspace and operation-name lookup. Multiple deployment
+candidates remain unknown; creation is never automatically retried.
+
+Provider completion does not verify authenticated MCP access, form approval or
+journal recovery after a hosted restart. Test these with the remote client before
+live provisioning. Deletion, image updates, rollbacks and private image registries
+are not implemented by this adapter. Remove a service and its disk manually in
+Render when needed; disk removal deletes its state. A failed deployment can still
+leave paid resources. Reconcile uncertain operations before any replacement.
+
+The earlier catalog-only Render proposal has an old source fingerprint and adapter
+checksum. It cannot be executed with this adapter. Create a new proposal after
+setup; the earlier preparation created no cloud resources.

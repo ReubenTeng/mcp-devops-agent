@@ -4,19 +4,27 @@ import { loadConfig } from "./config.js";
 import { buildDoctorReport, type DoctorReport } from "./doctor.js";
 import { SERVER_NAME, SERVER_VERSION } from "./metadata.js";
 import { createServer } from "./server.js";
+import { createHttpService, loadHttpConfig } from "./http.js";
+import { AppError } from "./errors.js";
 
 const HELP = `${SERVER_NAME} ${SERVER_VERSION}
 
 Usage:
   mcp-devops-agent              Start the MCP server on stdio (default).
   mcp-devops-agent serve        Start the MCP server on stdio.
+  mcp-devops-agent serve-http   Start the MCP HTTP service for one operator.
   mcp-devops-agent doctor       Run offline local diagnostics (no API calls).
   mcp-devops-agent doctor --json
   mcp-devops-agent --help, -h   Show this help.
   mcp-devops-agent --version, -v
 
-The server speaks MCP over stdio only; it is not an HTTP server.
+Stdio is the default. HTTP mode requires private bearer authentication.
 Environment:
+  MCP_DEVOPS_HTTP_TOKEN     Private random base64url token (at least 32 bytes).
+  MCP_DEVOPS_HTTP_PUBLIC_URL
+                          Public HTTPS URL ending in /mcp.
+  MCP_DEVOPS_HTTP_HOST      Bind address (default: 127.0.0.1).
+  PORT                    HTTP port (default: 3000).
   MCP_DEVOPS_PROJECT_ROOTS  JSON array of absolute project directories the
                             server may access. Defaults to the working directory.
   MCP_DEVOPS_STATE_DIR      Private state directory (default:
@@ -30,6 +38,8 @@ Environment:
   SUPABASE_ACCESS_TOKEN
   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
   GITHUB_TOKEN             GitHub Pages for eligible public repositories.
+  RENDER_API_KEY, RENDER_OWNER_ID, RENDER_MCP_HTTP_TOKEN
+                          Render account and private token for the hosted MCP service.
                           Provider credentials are loaded from the process
                           environment or the server working directory .env;
                           never pass them as arguments.
@@ -102,6 +112,26 @@ export async function runCli(args: readonly string[] = process.argv.slice(2)): P
     const appConfig = loadConfig();
     const server = createServer(appConfig);
     await server.connect(new StdioServerTransport());
+    return;
+  }
+  if (args.length === 1 && args[0] === "serve-http") {
+    loadDotenv({ quiet: true });
+    const httpConfig = loadHttpConfig();
+    const report = await buildDoctorReport(process.env, process.cwd());
+    if (!report.readyForLocalTools) {
+      throw new AppError("HTTP_NOT_READY", "HTTP startup requires valid project roots and a private, accessible state directory. Run doctor.");
+    }
+    const service = createHttpService(loadConfig(), httpConfig);
+    await service.listen();
+    const shutdown = () => {
+      void service.close().catch(() => {
+        process.stderr.write("HTTP shutdown failed. Reconcile interrupted operations before retrying.\n");
+        process.exitCode = 1;
+      });
+    };
+    process.once("SIGTERM", shutdown);
+    process.once("SIGINT", shutdown);
+    process.stderr.write("MCP HTTP service started.\n");
     return;
   }
   process.stderr.write("Unknown command or option. Run mcp-devops-agent --help.\n");

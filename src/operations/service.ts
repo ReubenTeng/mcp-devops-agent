@@ -7,9 +7,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { AppConfig } from "../config.js";
 import { requireApproval } from "../approval.js";
 import { AppError } from "../errors.js";
-import { PRICING_REVIEWED_AT } from "../planning.js";
+import { PRICING_REVIEWED_AT, RENDER_PRICING } from "../planning.js";
 import { CloudflareProvider } from "../providers/cloudflare.js";
-import { ProviderError } from "../providers/http.js";
+import { ProviderError, ProviderHttp } from "../providers/http.js";
 import { SupabaseProvider } from "../providers/supabase.js";
 import { VercelProvider } from "../providers/vercel.js";
 import { vercelDeploymentStatus } from "../providers/status.js";
@@ -27,6 +27,13 @@ const ESTIMATE_WARNING =
 const DOMAIN_PURCHASE_WARNING =
   "Domain purchases are non-refundable; the quoted price is pre-tax and may change before checkout. The Cloudflare API has no atomic maximum-price parameter, so the latest check is not a price guarantee.";
 const activeLeaseNonces = new Set<string>();
+
+export function renderMonthlyCents(plan: keyof typeof RENDER_PRICING.plans, diskGb: number): number {
+  if (!Object.hasOwn(RENDER_PRICING.plans, plan) || !Number.isInteger(diskGb) || diskGb < 1 || diskGb > 20) {
+    throw new AppError("SETUP_REQUIRED", "Render supports starter or standard with a disk from 1 to 20 GB.");
+  }
+  return RENDER_PRICING.plans[plan].monthlyCents + diskGb * RENDER_PRICING.diskCentsPerGb;
+}
 
 export interface PrepareInput {
   projectPath: string;
@@ -1118,6 +1125,20 @@ export class OperationService {
       }
     } else {
       result.cloudflare = { configured: false, missingCredentials: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"].filter((key) => !(key === "CLOUDFLARE_API_TOKEN" ? creds.cloudflareToken : creds.cloudflareAccountId)) };
+    }
+    const render = this.config.providerEnvironment ?? {};
+    const missingRender = ["RENDER_API_KEY", "RENDER_OWNER_ID", "RENDER_MCP_HTTP_TOKEN"].filter((key) => !render[key]);
+    if (missingRender.length) result.render = { configured: false, missingCredentials: missingRender };
+    else {
+      try {
+        const owner = render.RENDER_OWNER_ID!;
+        if (!/^tea-[a-z0-9]{1,64}$/.test(owner)) throw new AppError("SETUP_REQUIRED", "Configure a Render tea- workspace ID.");
+        const raw = await new ProviderHttp("https://api.render.com", render.RENDER_API_KEY, this.fetchImpl).request("GET", `/v1/owners/${owner}`);
+        if (!raw || typeof raw !== "object" || !("id" in raw) || raw.id !== owner) throw new AppError("ACCOUNT_MISMATCH", "Render did not confirm the configured workspace.");
+        result.render = { configured: true, accountId: owner, billingVerified: false };
+      } catch (err) {
+        result.render = { configured: true, error: err instanceof AppError ? err.code : "INTERNAL_ERROR" };
+      }
     }
     return { providers: result };
   }

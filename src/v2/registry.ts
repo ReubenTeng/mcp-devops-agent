@@ -7,6 +7,7 @@ import { loadInstalled, credentialsFor, type Adapter } from "./adapter.js";
 import { digest, type Manifest } from "./schema.js";
 import { readProjectBytes } from "../utils/files.js";
 import { githubPagesAdapter, githubPagesManifest } from "./github-pages.js";
+import { renderAdapter, renderManifest } from "./render.js";
 
 export class Registry {
   readonly manifests = new Map<string, Manifest>();
@@ -15,23 +16,24 @@ export class Registry {
   constructor(readonly config: AppConfig, readonly deps: { fetch?: typeof fetch } = {}) {}
   async init(): Promise<this> {
     if (this.manifests.size) return this;
-    const manifests = new Map([...catalogManifests(), ...legacyManifests(), githubPagesManifest].map((m) => [m.id, m]));
+    const manifests = new Map([...catalogManifests(), ...legacyManifests(), githubPagesManifest, renderManifest].map((m) => [m.id, m]));
     const adapters = new Map<string, Adapter>();
     const here = path.dirname(fileURLToPath(import.meta.url));
     const extension = path.extname(fileURLToPath(import.meta.url));
     const code: string[] = [];
-    for (const file of ["v2/adapter", "v2/engine", "v2/schema", "v2/native", "v2/github-pages", "operations/service", "operations/store", "operations/types", "providers/http", "providers/vercel", "providers/supabase", "providers/cloudflare", "providers/status", "utils/env", "utils/files", "utils/deployment", "approval"]) {
+    for (const file of ["v2/adapter", "v2/engine", "v2/schema", "v2/native", "v2/github-pages", "v2/render", "planning", "operations/service", "operations/store", "operations/types", "providers/http", "providers/vercel", "providers/supabase", "providers/cloudflare", "providers/status", "utils/env", "utils/files", "utils/deployment", "approval"]) {
       const bytes = await readProjectBytes(path.dirname(here), `${file}${extension}`, 2 * 1024 * 1024);
       if (!bytes) throw new AppError("INVALID_INSTALLATION", "A bundled provider module is missing. Reinstall the package.");
       code.push(digest(bytes.toString("utf8")));
     }
     const codeDigest = digest(code);
-    for (const id of ["vercel", "supabase", "cloudflare", "github-pages"]) this.bundledChecksums.set(id, digest({ manifest: manifests.get(id), codeDigest }));
+    for (const id of ["vercel", "supabase", "cloudflare", "github-pages", "render"]) this.bundledChecksums.set(id, digest({ manifest: manifests.get(id), codeDigest }));
     adapters.set("github-pages", githubPagesAdapter(this.config, this.bundledChecksums.get("github-pages")!, this.deps.fetch));
+    adapters.set("render", renderAdapter(this.config, this.bundledChecksums.get("render")!, this.deps.fetch));
     const installedIds = new Set<string>();
     for (const spec of this.config.adapters ?? []) {
       const { manifest, adapter } = await loadInstalled(spec, this.config);
-      if (installedIds.has(manifest.id) || ["vercel", "supabase", "cloudflare", "github-pages"].includes(manifest.id)) throw new AppError("DUPLICATE_ADAPTER", "Installed adapters must have unique IDs and cannot replace bundled executable adapters.");
+      if (installedIds.has(manifest.id) || ["vercel", "supabase", "cloudflare", "github-pages", "render"].includes(manifest.id)) throw new AppError("DUPLICATE_ADAPTER", "Installed adapters must have unique IDs and cannot replace bundled executable adapters.");
       installedIds.add(manifest.id); manifests.set(manifest.id, manifest);
       if (adapter) adapters.set(manifest.id, adapter);
     }

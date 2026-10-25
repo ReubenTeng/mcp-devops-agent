@@ -6,13 +6,14 @@ const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = [100, 250];
 const MAX_RETRY_AFTER_MS = 2_000;
 
-export type ProviderOrigin = "https://api.vercel.com" | "https://api.supabase.com" | "https://api.cloudflare.com" | "https://api.github.com";
+export type ProviderOrigin = "https://api.vercel.com" | "https://api.supabase.com" | "https://api.cloudflare.com" | "https://api.github.com" | "https://api.render.com";
 
 const PROVIDER_NAMES: Record<ProviderOrigin, string> = {
   "https://api.vercel.com": "Vercel",
   "https://api.supabase.com": "Supabase",
   "https://api.cloudflare.com": "Cloudflare",
   "https://api.github.com": "GitHub",
+  "https://api.render.com": "Render",
 };
 
 export class ProviderError extends AppError {

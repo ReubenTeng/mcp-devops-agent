@@ -99,6 +99,10 @@ export function composeSteps(plan: Plan, registry: Registry): Step[] {
       add("pages-deploy", provider, "build_pages", { ...params, sha: sha ?? null, branch: `mcp-pages-${plan.id.slice(0, 12)}` }, ["pages-settings"]);
       continue;
     }
+    if (provider === "render") {
+      add("provider-render", provider, "provision", { name, region: plan.constraints.region ?? null, diskGb: plan.constraints.storageGb ?? 1, ...(plan.overrides.parameters?.render ?? {}) });
+      continue;
+    }
     const manifest = registry.get(provider);
     const operation = manifest.operations.includes("provision") ? "provision" : manifest.operations.find((op) => op === `provision_${plan.workload.blueprint}`) ?? "provision";
     const capabilities = Object.entries(assigned).filter(([, p]) => p === provider).map(([c]) => c);
